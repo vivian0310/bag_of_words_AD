@@ -27,3 +27,6 @@ tar xvf mvtec_anomaly_detection.tar.xz
 ## 備註
 - 基本上檔案結構我沒什麼改，只有把所有前處理資料都塞進去 preprocessData 裡面，此外有一個 config.py 的檔案，裡面有你的 root 也就是你的 bag_of_words 這個資料夾的絕對路徑，如果你要搬去其他地方執行的話記得要更改這個地方 
 - preprocess.py and convert.py 裡面的 dataset 路徑也要記得修改
+
+## Progress
+- 我們的 dataset 一共有 15 種不同的類型，目前剩下最後兩種 (wood, zipper) 還沒跑實驗
