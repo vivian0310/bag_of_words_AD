@@ -22,14 +22,16 @@ import random
 import sys
 import dataloaders
 import model_weightSample
-# from utils.tools import draw_errorMap
+from sklearn.metrics import roc_auc_score
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 pil_to_tensor = transforms.ToTensor()
 
 def draw_errorMap(pretrain_model, model, test_loader, mask_loader, kmeans, pca, test_data, test_type):
 
-    with torch.no_grad():   
+    with torch.no_grad():  
+        auc_list = [] 
         for ((idx, img), (idx2, img2)) in zip(test_loader, mask_loader):
             each_pixel_list = [[[] for i in range(1024)] for j in range(1024)]
             pixel_feature = []  
@@ -92,17 +94,6 @@ def draw_errorMap(pretrain_model, model, test_loader, mask_loader, kmeans, pca, 
 
             pixel_feature = np.array(pixel_feature).reshape((1024, -1))
 
-            # value = preprocessing.minmax_scale(value_feature, feature_range=(0,1), axis=1)
-            error_map = np.zeros((1024, 1024))
-            print("create mask")
-            # for index, scalar in enumerate(pixel_feature):
-                # print(index, scalar)
-                # mask = cv2.imread('dataset/big_mask/mask{}.png'.format(index), cv2.IMREAD_GRAYSCALE)
-                # mask = np.invert(mask)
-                # mask[mask==255]=1
-                 
-                # error_map += scalar
-
             if (test_type == 'good'):
                 img_ = np.squeeze(img.detach().cpu().numpy()).transpose((1,2,0))
                 ironman_grid = plt.GridSpec(1, 2)
@@ -123,10 +114,17 @@ def draw_errorMap(pretrain_model, model, test_loader, mask_loader, kmeans, pca, 
                 im2 = ax2.imshow(img_)
                 im3 = ax3.imshow(defect_gt)
 
-            errorMapPath = "multi_errorMap/vgg19/{}/{}/".format(
-                test_data,
-                test_type
-            )
+                true_mask = defect_gt[:, :, 0].astype('int32') 
+                auc = roc_auc_score(true_mask.flatten(), pixel_feature.flatten())
+
+                auc_list.append(auc)
+                ax1.set_title(auc)
+
+            # errorMapPath = "multi_errorMap/vgg19/{}/{}/".format(
+            #     test_data,
+            #     test_type
+            # )
+            errorMapPath = "testing_multiMap/"
             if not os.path.isdir(errorMapPath):
                 os.makedirs(errorMapPath)
                 print("----- create folder for type:{} -----".format(test_type))
@@ -139,6 +137,9 @@ def draw_errorMap(pretrain_model, model, test_loader, mask_loader, kmeans, pca, 
             plt.close(fig)
             
             print(f'img_idx={idx}')
+        
+        auc_average = sum(auc_list) / len(auc_list)
+        print("Average score: ", auc_average)
 
 
 if __name__ == "__main__":
