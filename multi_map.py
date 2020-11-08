@@ -27,100 +27,12 @@ import model_weightSample
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 pil_to_tensor = transforms.ToTensor()
 
-
-def eval_feature(pretrain_model, model, test_loader, kmeans, pca):
-
-    model.eval()
-    pretrain_model.eval()
-    
-    """ store each pixel value """
-    
-
-    with torch.no_grad():
-        
-        img_feature = []
-        each_pixel_list = [[[] for i in range(1024)] for j in range(1024)]
-        pixel_feature = []
-        total_gt = []
-        total_idx = []
-
-        for (idx, img) in test_loader:
-            img = img.to(device)
-            idx = idx[0].item()
-
-            print(f'eval phase: img idx={idx}')
-
-
-            """ slide window = 16 """
-            map_num = int((1024 - 64) / 16 + 1)   ## = 61
-            
-            for i in range(map_num):
-                print(f'map_num:{i}')
-                xs = []
-                ys = []
-
-                crop_list = []
-                loss = 0.0
-                loss_alpha = 0.0
-
-                for j in range(map_num):
-                    crop_img = img[:, :, i*16:i*16+64, j*16:j*16+64].to(device)
-                    crop_output = pretrain_model(crop_img)
-                    """ flatten the dimension of H and W """
-                    out_ = crop_output.flatten(1,2).flatten(1,2)
-                    out = pca.transform(out_.detach().cpu().numpy())
-                    out_label = kmeans.predict(out)
-                    out = pil_to_tensor(out).squeeze().to(device)
-
-                    mask = torch.ones(1, 1, 1024, 1024)
-                    mask[:, :, i*16:i*16+64, j*16:j*16+64] = 0
-                    mask = mask.to(device)
-                    x = img * mask
-                    x = torch.cat((x, mask), 1)
-                                        
-                    output = model(x)
-                    y = output.argmax(-1).detach().cpu().numpy()
-
-                    output_center = kmeans.cluster_centers_[y]
-                    output_center = np.reshape(output_center, (1, -1))
-                    output_center = pil_to_tensor(output_center).to(device)
-                    output_center = torch.squeeze(output_center)
-
-                    if y == out_label:
-                        isWrongLabel = 0
-                    else:
-                        isWrongLabel = 1
-
-                    diff = isWrongLabel * nn.MSELoss()(output_center, out)
-                    
-                    for x in range(64):
-                        for y in range(64):
-                            each_pixel_list[i*16+x][j*16+y].append(diff.item())
-            
-            for m in range(1024):
-                for n in range(1024):
-                    pixel_feature.append(sum(each_pixel_list[m][n]) / len(each_pixel_list[m][n]))
-
-            img_feature.append(pixel_feature)
-
-
-    img_feature = np.array(img_feature).reshape((len(test_loader), -1))
-
-    return img_feature
-
-
-
 def draw_errorMap(pretrain_model, model, test_loader, mask_loader, kmeans, pca, test_data, test_type):
 
     with torch.no_grad():   
-        
-        img_feature = []
-        each_pixel_list = [[[] for i in range(1024)] for j in range(1024)]
-        pixel_feature = []
-        total_gt = []
-        total_idx = []
-
-        for ((idx, img), (idx2, img2)) in zip(test_loader, mask_loader):  
+        for ((idx, img), (idx2, img2)) in zip(test_loader, mask_loader):
+            each_pixel_list = [[[] for i in range(1024)] for j in range(1024)]
+            pixel_feature = []  
             img = img.to(device)
             idx = idx[0].item()
             print(f'eval phase: img idx={idx}')
@@ -160,11 +72,14 @@ def draw_errorMap(pretrain_model, model, test_loader, mask_loader, kmeans, pca, 
                     output_center = pil_to_tensor(output_center).to(device)
                     output_center = torch.squeeze(output_center)
 
+                    # print(y, out_label)
                     if y == out_label:
                         isWrongLabel = 0
                     else:
                         isWrongLabel = 1
-
+                    
+                    # print(isWrongLabel)
+                    # sys.exit(0)
                     diff = isWrongLabel * nn.MSELoss()(output_center, out)
                     
                     for x in range(64):
@@ -175,25 +90,25 @@ def draw_errorMap(pretrain_model, model, test_loader, mask_loader, kmeans, pca, 
                 for n in range(1024):
                     pixel_feature.append(sum(each_pixel_list[m][n]) / len(each_pixel_list[m][n]))
 
-            # pixel_feature = np.array(pixel_feature).reshape((1024, -1))
+            pixel_feature = np.array(pixel_feature).reshape((1024, -1))
 
             # value = preprocessing.minmax_scale(value_feature, feature_range=(0,1), axis=1)
             error_map = np.zeros((1024, 1024))
             print("create mask")
-            for index, scalar in enumerate(pixel_feature):
-                print(index, scalar)
-                mask = cv2.imread('dataset/big_mask/mask{}.png'.format(index), cv2.IMREAD_GRAYSCALE)
-                mask = np.invert(mask)
-                mask[mask==255]=1
-                
-                error_map += mask * scalar
+            # for index, scalar in enumerate(pixel_feature):
+                # print(index, scalar)
+                # mask = cv2.imread('dataset/big_mask/mask{}.png'.format(index), cv2.IMREAD_GRAYSCALE)
+                # mask = np.invert(mask)
+                # mask[mask==255]=1
+                 
+                # error_map += scalar
 
             if (test_type == 'good'):
                 img_ = np.squeeze(img.detach().cpu().numpy()).transpose((1,2,0))
                 ironman_grid = plt.GridSpec(1, 2)
                 fig = plt.figure(figsize=(12,6), dpi=100)
                 ax1 = fig.add_subplot(ironman_grid[0,0])
-                im1 = ax1.imshow(error_map, cmap="Blues")
+                im1 = ax1.imshow(pixel_feature, cmap="Blues")
                 ax2 = fig.add_subplot(ironman_grid[0,1])
                 im2 = ax2.imshow(img_)
             else:
@@ -202,7 +117,7 @@ def draw_errorMap(pretrain_model, model, test_loader, mask_loader, kmeans, pca, 
                 ironman_grid = plt.GridSpec(1, 3)
                 fig = plt.figure(figsize=(18,6), dpi=100)
                 ax1 = fig.add_subplot(ironman_grid[0,0])
-                im1 = ax1.imshow(error_map, cmap="Blues")
+                im1 = ax1.imshow(pixel_feature, cmap="Blues")
                 ax2 = fig.add_subplot(ironman_grid[0,1])
                 ax3 = fig.add_subplot(ironman_grid[0,2])
                 im2 = ax2.imshow(img_)
@@ -216,7 +131,7 @@ def draw_errorMap(pretrain_model, model, test_loader, mask_loader, kmeans, pca, 
                 os.makedirs(errorMapPath)
                 print("----- create folder for type:{} -----".format(test_type))
             
-            errorMapName = "{}_{}.png".format(
+            errorMapName = "{}.png".format(
                 str(idx)
             )
 
@@ -271,7 +186,7 @@ if __name__ == "__main__":
             str(out),
             str(args.batch)
         )
-        defect_gt_path = "dataset/{}/ground_truth/broken_small_resize/".format(args.data)
+        defect_gt_path = "dataset/bottle/ground_truth/broken_small_resize/"
 
 
     else:
@@ -293,7 +208,7 @@ if __name__ == "__main__":
 
     model = model_weightSample.scratch_model
     model = nn.DataParallel(model)
-    model.load_state_dict(torch.load('models/{}/{}/exp9_128_10.ckpt'.format(
+    model.load_state_dict(torch.load('models/{}/{}/exp1_128_30.ckpt'.format(
         args.model, 
         args.data
         )   
